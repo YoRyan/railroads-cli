@@ -1,0 +1,15 @@
+[package]
+name = "railroadscli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.0", features = ["derive"] }
+colog = "1.0"
+config = "0.15.23"
+dirs = "6.0"
+log = "0.4.29"
+rust-ini = "0.21.3"
+serde = { version = "1.0.228", features = ["derive"] }
+sevenz-rust2 = "0.21.0"
+steamlocate = "2.1.0"
