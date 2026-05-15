@@ -1,9 +1,13 @@
+use std::env::consts::OS;
 use std::path::Path;
+use std::process::Command;
 
 use clap::Parser;
 use ini::Ini;
 use log::{debug, error};
 use serde::Deserialize;
+
+const STEAM_APP_ID: u32 = 7600;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -11,7 +15,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 struct Args {
     /// Don't launch the game after applying the configuration
     #[arg(short, long, default_value_t = false)]
-    no_launch: bool
+    no_launch: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -46,26 +50,42 @@ fn default_openspy() -> String {
     String::from("openspy.net")
 }
 
-fn change_settings_ini(config: &Config) -> Result<()> {
-    let path = if !config.settings_ini_path.is_empty() {
+fn get_settings_ini_path(config: &Config) -> Option<Box<Path>> {
+    if !config.settings_ini_path.is_empty() {
         Some(Path::new(&config.settings_ini_path).into())
     } else {
         None
     }
-    .or_else(|| match std::env::consts::OS {
-        "windows" => dirs::document_dir()
-            .map(|mut pb| {
-                pb.push("My Games");
-                pb.push("Sid Meier's Railroads");
-                pb.push("Settings.ini");
-                pb
-            })
-            .map(|pb| pb.into_boxed_path()),
+    .or_else(|| match OS {
+        "windows" => {
+            let mut pb = dirs::document_dir()?;
+            pb.push("My Games");
+            pb.push("Sid Meier's Railroads");
+            pb.push("Settings.ini");
+            Some(pb.into_boxed_path())
+        }
         "linux" => panic!("TODO"),
         _ => None,
-    });
+    })
+}
 
-    let path = match path {
+fn get_railroads_exe_path(config: &Config) -> Option<Box<Path>> {
+    if !config.railroads_exe_path.is_empty() {
+        Some(Path::new(&config.railroads_exe_path).into())
+    } else {
+        None
+    }
+    .or_else(|| {
+        let steam_dir = steamlocate::locate().ok()?;
+        let (app, library) = steam_dir.find_app(STEAM_APP_ID).ok()??;
+        let mut pb = library.resolve_app_dir(&app);
+        pb.push("RailRoads.exe");
+        Some(pb.into_boxed_path())
+    })
+}
+
+fn change_settings_ini(config: &Config) -> Result<()> {
+    let path = match get_settings_ini_path(config) {
         Some(p) => Ok(p),
         None => Err("Path not configured, and could not locate it automatically"),
     }?;
@@ -137,5 +157,18 @@ fn main() {
 
     if let Err(err) = change_settings_ini(&config) {
         error!("Error processing Settings.ini file: {:?}", err);
+    }
+
+    if !args.no_launch {
+        match OS {
+            "windows" => {
+                if let Some(exe) = get_railroads_exe_path(&config) {
+                    debug!("Launching: {:?}", exe);
+                    let _ = Command::new(exe.as_os_str()).spawn();
+                }
+            }
+            "linux" => panic!("TODO"),
+            _ => {}
+        }
     }
 }
