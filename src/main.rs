@@ -1,4 +1,6 @@
 use std::env::consts::OS;
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::process::Command;
 
@@ -138,6 +140,103 @@ fn change_settings_ini(config: &Config) -> Result<()> {
     Ok(())
 }
 
+fn change_railroads_exe(config: &Config) -> Result<()> {
+    let path = match get_railroads_exe_path(config) {
+        Some(p) => Ok(p),
+        None => Err("Path not configured, and could not locate it automatically"),
+    }?;
+    debug!("RailRoads.exe path: {:?}", path);
+
+    change_railroads_exe_laa(config, &path)
+        .and_then(|()| change_railroads_exe_gamespy(config, &path))
+}
+
+fn change_railroads_exe_laa(config: &Config, path: &Box<Path>) -> Result<()> {
+    // Locate the PE header, then set the LAA flag in the characteristics field.
+    // https://github.com/pyinstaller/pyinstaller/issues/1288#issuecomment-109787370
+    const PE_OFFSET_POINTER: u64 = 0x3c;
+    const PE_CHARACTERISTICS_OFFSET: u64 = 22;
+    const LAA_FLAG: u16 = 0x20;
+
+    let mut exe = File::options().read(true).write(true).open(path)?;
+
+    let mut buf = [0; 2];
+    exe.read_exact(&mut buf)?;
+    if buf != [b'M', b'Z'] {
+        return Err(
+            "RailRoads.exe does not look like an executable (invalid DOS magic header)".into(),
+        );
+    }
+
+    let mut buf = [0; 4];
+    exe.seek(SeekFrom::Start(PE_OFFSET_POINTER))?;
+    exe.read_exact(&mut buf)?;
+    let pe_offset = u32::from_le_bytes(buf);
+    debug!("RailRoads.exe PE offset: 0x{:x?}", pe_offset);
+
+    let mut buf = [0; 4];
+    exe.seek(SeekFrom::Start(pe_offset as u64))?;
+    exe.read_exact(&mut buf)?;
+    if buf != [b'P', b'E', 0, 0] {
+        return Err(
+            "RailRoads.exe does not look like an executable (invalid PE magic header)".into(),
+        );
+    }
+
+    let mut buf = [0; 2];
+    exe.seek(SeekFrom::Start(
+        pe_offset as u64 + PE_CHARACTERISTICS_OFFSET,
+    ))?;
+    exe.read_exact(&mut buf)?;
+    let chars = u16::from_le_bytes(buf);
+
+    let to_write = if config.laa_aware {
+        chars | LAA_FLAG
+    } else {
+        chars & !LAA_FLAG
+    };
+    debug!(
+        "Writing new characteristics to RailRoads.exe: 0x{:x?}",
+        to_write
+    );
+    exe.seek(SeekFrom::Start(
+        pe_offset as u64 + PE_CHARACTERISTICS_OFFSET,
+    ))?;
+    exe.write_all(&to_write.to_le_bytes())?;
+
+    Ok(())
+}
+
+fn change_railroads_exe_gamespy(config: &Config, path: &Box<Path>) -> Result<()> {
+    const OFFSETS: [u64; 9] = [
+        0x618da2, 0x618eb4, 0x618f34, 0x618f61, 0x618f84, 0x618f98, 0x618fac, 0x619209, 0x619670,
+    ];
+
+    let server = &config.gamespy_server;
+    if !server.is_ascii() {
+        return Err("GameSpy server name must only contain ASCII characters".into());
+    }
+    if server.len() != 11 {
+        return Err("GameSpy server name must be exactly 11 characters long".into());
+    }
+
+    let mut exe = File::options().read(true).write(true).open(path)?;
+    for offset in OFFSETS {
+        let mut buf = [0; 11];
+        exe.seek(SeekFrom::Start(offset))?;
+        exe.read_exact(&mut buf)?;
+        match str::from_utf8(&buf) {
+            Ok(s) => debug!("Setting RailRoads.exe GameSpy server at 0x{:x?}, currently: {}", offset, s),
+            Err(_) => return Err("GameSpy server name is not where we expected it in the executable, so not setting it".into())
+        }
+
+        exe.seek(SeekFrom::Start(offset))?;
+        exe.write_all(str::as_bytes(server))?;
+    }
+
+    Ok(())
+}
+
 fn main() {
     colog::init();
 
@@ -157,6 +256,10 @@ fn main() {
 
     if let Err(err) = change_settings_ini(&config) {
         error!("Error processing Settings.ini file: {:?}", err);
+    }
+
+    if let Err(err) = change_railroads_exe(&config) {
+        error!("Error processing RailRoads.exe: {:?}", err);
     }
 
     if !args.no_launch {
