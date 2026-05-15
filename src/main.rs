@@ -9,8 +9,6 @@ use ini::Ini;
 use log::{debug, error};
 use serde::Deserialize;
 
-const STEAM_APP_ID: u32 = 7600;
-
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 #[derive(Parser, Debug)]
@@ -72,6 +70,8 @@ fn get_settings_ini_path(config: &Config) -> Option<Box<Path>> {
 }
 
 fn get_railroads_exe_path(config: &Config) -> Option<Box<Path>> {
+    const STEAM_APP_ID: u32 = 7600;
+
     if !config.railroads_exe_path.is_empty() {
         Some(Path::new(&config.railroads_exe_path).into())
     } else {
