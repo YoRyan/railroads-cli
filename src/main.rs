@@ -237,6 +237,19 @@ fn change_railroads_exe_gamespy(config: &Config, path: &Box<Path>) -> Result<()>
     Ok(())
 }
 
+fn launch_game(config: &Config) {
+    match OS {
+        "windows" => {
+            if let Some(exe) = get_railroads_exe_path(&config) {
+                debug!("Launching: {:?}", exe);
+                let _ = Command::new(exe.as_os_str()).spawn();
+            }
+        }
+        "linux" => panic!("TODO"),
+        _ => {}
+    }
+}
+
 fn main() {
     colog::init();
 
@@ -263,15 +276,6 @@ fn main() {
     }
 
     if !args.no_launch {
-        match OS {
-            "windows" => {
-                if let Some(exe) = get_railroads_exe_path(&config) {
-                    debug!("Launching: {:?}", exe);
-                    let _ = Command::new(exe.as_os_str()).spawn();
-                }
-            }
-            "linux" => panic!("TODO"),
-            _ => {}
-        }
+        launch_game(&config);
     }
 }
