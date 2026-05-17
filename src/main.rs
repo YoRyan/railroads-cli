@@ -128,9 +128,8 @@ fn get_game_install_path(config: &Config) -> Option<PathBuf> {
 }
 
 fn change_settings_ini(config: &Config) -> Result<()> {
-    let mut path = match get_game_data_path(config) {
-        Some(p) => p,
-        None => return Err("Path not configured, and could not locate it automatically".into()),
+    let Some(mut path) = get_game_data_path(config) else {
+        return Err("Path not configured, and could not locate it automatically".into());
     };
     path.push("Settings.ini");
     debug!("Settings.ini path: {:?}", path);
@@ -183,9 +182,8 @@ fn change_settings_ini(config: &Config) -> Result<()> {
 }
 
 fn change_railroads_exe(config: &Config) -> Result<()> {
-    let mut path = match get_game_install_path(config) {
-        Some(p) => p,
-        None => return Err("Path not configured, and could not locate it automatically".into()),
+    let Some(mut path) = get_game_install_path(config) else {
+        return Err("Path not configured, and could not locate it automatically".into());
     };
     path.push("RailRoads.exe");
     debug!("RailRoads.exe path: {:?}", path);
@@ -268,10 +266,13 @@ fn change_railroads_exe_gamespy(config: &Config, path: &PathBuf) -> Result<()> {
         let mut buf = [0; 11];
         exe.seek(SeekFrom::Start(offset))?;
         exe.read_exact(&mut buf)?;
-        match str::from_utf8(&buf) {
-            Ok(s) => debug!("Setting RailRoads.exe GameSpy server at 0x{:x?}, currently: {}", offset, s),
-            Err(_) => return Err("GameSpy server name is not where we expected it in the executable, so not setting it".into())
-        }
+        let Ok(last) = str::from_utf8(&buf) else {
+            return Err("GameSpy server name is not where we expected it in the executable, so not setting it".into());
+        };
+            debug!(
+                "Setting RailRoads.exe GameSpy server at 0x{:x?}, currently: {}",
+                offset, last
+            );
 
         exe.seek(SeekFrom::Start(offset))?;
         exe.write_all(str::as_bytes(server))?;
