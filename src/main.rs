@@ -88,9 +88,9 @@ fn get_railroads_exe_path(config: &Config) -> Option<Box<Path>> {
 
 fn change_settings_ini(config: &Config) -> Result<()> {
     let path = match get_settings_ini_path(config) {
-        Some(p) => Ok(p),
-        None => Err("Path not configured, and could not locate it automatically"),
-    }?;
+        Some(p) => p,
+        None => return Err("Path not configured, and could not locate it automatically".into()),
+    };
     debug!("Settings.ini path: {:?}", path);
 
     let mut i = Ini::load_from_file_opt(
@@ -142,9 +142,9 @@ fn change_settings_ini(config: &Config) -> Result<()> {
 
 fn change_railroads_exe(config: &Config) -> Result<()> {
     let path = match get_railroads_exe_path(config) {
-        Some(p) => Ok(p),
-        None => Err("Path not configured, and could not locate it automatically"),
-    }?;
+        Some(p) => p,
+        None => return Err("Path not configured, and could not locate it automatically".into()),
+    };
     debug!("RailRoads.exe path: {:?}", path);
 
     change_railroads_exe_laa(config, &path)
