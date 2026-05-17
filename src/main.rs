@@ -52,6 +52,36 @@ fn default_openspy() -> String {
     String::from("openspy.net")
 }
 
+fn main() {
+    colog::init();
+
+    let args = Args::parse();
+
+    let settings = config::Config::builder()
+        .add_source(config::File::with_name("railroadscli").required(false))
+        .add_source(config::Environment::with_prefix("RR"))
+        .build()
+        .unwrap();
+
+    let config = settings.try_deserialize::<Config>().unwrap();
+    debug!("Loaded config: {:?}", config);
+
+    // Errors halt processing within each function, but we can skip to the next
+    // step instead of aborting the whole program.
+
+    if let Err(err) = change_settings_ini(&config) {
+        error!("Error processing Settings.ini file: {:?}", err);
+    }
+
+    if let Err(err) = change_railroads_exe(&config) {
+        error!("Error processing RailRoads.exe: {:?}", err);
+    }
+
+    if !args.no_launch {
+        launch_game(&config);
+    }
+}
+
 fn get_game_data_path(config: &Config) -> Option<PathBuf> {
     if !config.game_data_path.is_empty() {
         Some(PathBuf::from(&config.game_data_path))
@@ -268,35 +298,5 @@ fn launch_game(config: &Config) {
             let _ = Command::new("steam").arg(arg).spawn();
         }
         _ => {}
-    }
-}
-
-fn main() {
-    colog::init();
-
-    let args = Args::parse();
-
-    let settings = config::Config::builder()
-        .add_source(config::File::with_name("railroadscli").required(false))
-        .add_source(config::Environment::with_prefix("RR"))
-        .build()
-        .unwrap();
-
-    let config = settings.try_deserialize::<Config>().unwrap();
-    debug!("Loaded config: {:?}", config);
-
-    // Errors halt processing within each function, but we can skip to the next
-    // step instead of aborting the whole program.
-
-    if let Err(err) = change_settings_ini(&config) {
-        error!("Error processing Settings.ini file: {:?}", err);
-    }
-
-    if let Err(err) = change_railroads_exe(&config) {
-        error!("Error processing RailRoads.exe: {:?}", err);
-    }
-
-    if !args.no_launch {
-        launch_game(&config);
     }
 }
