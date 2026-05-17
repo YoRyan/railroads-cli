@@ -1,13 +1,15 @@
 use std::env::consts::OS;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 
 use clap::Parser;
 use ini::Ini;
 use log::{debug, error};
 use serde::Deserialize;
+
+const STEAM_APP_ID: u32 = 7600;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -21,7 +23,7 @@ struct Args {
 #[derive(Deserialize, Debug)]
 struct Config {
     #[serde(default = "String::new")]
-    settings_ini_path: String,
+    game_data_path: String,
     #[serde(default = "default_true")]
     best_graphics: bool,
     #[serde(default = "default_true")]
@@ -29,7 +31,7 @@ struct Config {
     #[serde(default = "default_true")]
     enable_editor: bool,
     #[serde(default = "String::new")]
-    railroads_exe_path: String,
+    game_install_path: String,
     #[serde(default = "default_true")]
     laa_aware: bool,
     #[serde(default = "default_openspy")]
@@ -50,9 +52,9 @@ fn default_openspy() -> String {
     String::from("openspy.net")
 }
 
-fn get_settings_ini_path(config: &Config) -> Option<Box<Path>> {
-    if !config.settings_ini_path.is_empty() {
-        Some(Path::new(&config.settings_ini_path).into())
+fn get_game_data_path(config: &Config) -> Option<PathBuf> {
+    if !config.game_data_path.is_empty() {
+        Some(PathBuf::from(&config.game_data_path))
     } else {
         None
     }
@@ -61,36 +63,46 @@ fn get_settings_ini_path(config: &Config) -> Option<Box<Path>> {
             let mut pb = dirs::document_dir()?;
             pb.push("My Games");
             pb.push("Sid Meier's Railroads");
-            pb.push("Settings.ini");
-            Some(pb.into_boxed_path())
+            Some(pb)
         }
-        "linux" => panic!("TODO"),
+        "linux" => {
+            let steam_dir = steamlocate::locate().ok()?;
+            let mut pb = PathBuf::from(steam_dir.path());
+            pb.push("steamapps");
+            pb.push("compatdata");
+            pb.push(STEAM_APP_ID.to_string());
+            pb.push("pfx");
+            pb.push("drive_c");
+            pb.push("users");
+            pb.push("steamuser");
+            pb.push("Documents");
+            pb.push("My Games");
+            pb.push("Sid Meier's Railroads");
+            Some(pb)
+        }
         _ => None,
     })
 }
 
-fn get_railroads_exe_path(config: &Config) -> Option<Box<Path>> {
-    const STEAM_APP_ID: u32 = 7600;
-
-    if !config.railroads_exe_path.is_empty() {
-        Some(Path::new(&config.railroads_exe_path).into())
+fn get_game_install_path(config: &Config) -> Option<PathBuf> {
+    if !config.game_install_path.is_empty() {
+        Some(PathBuf::from(&config.game_install_path))
     } else {
         None
     }
     .or_else(|| {
         let steam_dir = steamlocate::locate().ok()?;
         let (app, library) = steam_dir.find_app(STEAM_APP_ID).ok()??;
-        let mut pb = library.resolve_app_dir(&app);
-        pb.push("RailRoads.exe");
-        Some(pb.into_boxed_path())
+        Some(library.resolve_app_dir(&app))
     })
 }
 
 fn change_settings_ini(config: &Config) -> Result<()> {
-    let path = match get_settings_ini_path(config) {
+    let mut path = match get_game_data_path(config) {
         Some(p) => p,
         None => return Err("Path not configured, and could not locate it automatically".into()),
     };
+    path.push("Settings.ini");
     debug!("Settings.ini path: {:?}", path);
 
     let mut i = Ini::load_from_file_opt(
@@ -141,17 +153,18 @@ fn change_settings_ini(config: &Config) -> Result<()> {
 }
 
 fn change_railroads_exe(config: &Config) -> Result<()> {
-    let path = match get_railroads_exe_path(config) {
+    let mut path = match get_game_install_path(config) {
         Some(p) => p,
         None => return Err("Path not configured, and could not locate it automatically".into()),
     };
+    path.push("RailRoads.exe");
     debug!("RailRoads.exe path: {:?}", path);
 
     change_railroads_exe_laa(config, &path)
         .and_then(|()| change_railroads_exe_gamespy(config, &path))
 }
 
-fn change_railroads_exe_laa(config: &Config, path: &Box<Path>) -> Result<()> {
+fn change_railroads_exe_laa(config: &Config, path: &PathBuf) -> Result<()> {
     // Locate the PE header, then set the LAA flag in the characteristics field.
     // https://github.com/pyinstaller/pyinstaller/issues/1288#issuecomment-109787370
     const PE_OFFSET_POINTER: u64 = 0x3c;
@@ -207,7 +220,7 @@ fn change_railroads_exe_laa(config: &Config, path: &Box<Path>) -> Result<()> {
     Ok(())
 }
 
-fn change_railroads_exe_gamespy(config: &Config, path: &Box<Path>) -> Result<()> {
+fn change_railroads_exe_gamespy(config: &Config, path: &PathBuf) -> Result<()> {
     const OFFSETS: [u64; 9] = [
         0x618da2, 0x618eb4, 0x618f34, 0x618f61, 0x618f84, 0x618f98, 0x618fac, 0x619209, 0x619670,
     ];
@@ -240,12 +253,20 @@ fn change_railroads_exe_gamespy(config: &Config, path: &Box<Path>) -> Result<()>
 fn launch_game(config: &Config) {
     match OS {
         "windows" => {
-            if let Some(exe) = get_railroads_exe_path(&config) {
-                debug!("Launching: {:?}", exe);
-                let _ = Command::new(exe.as_os_str()).spawn();
+            if let Some(mut path) = get_game_install_path(&config) {
+                path.push("RailRoads.exe");
+                debug!("Launching: {:?}", path);
+                let _ = Command::new(path).spawn();
             }
         }
-        "linux" => panic!("TODO"),
+        "linux" => {
+            let arg = format!("steam://rungameid/{}", STEAM_APP_ID);
+            debug!(
+                "Launching: {} (warning: will not work for the flatpak version of steam)",
+                arg
+            );
+            let _ = Command::new("steam").arg(arg).spawn();
+        }
         _ => {}
     }
 }
